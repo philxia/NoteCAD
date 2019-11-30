@@ -38,15 +38,25 @@ public class PointsDistance : ValueConstraint {
 		return null;
 	}
 
+	Vector3 GetPointPosInPlane(int i, IPlane plane) {
+		if(HasEntitiesOfType(IEntityType.Line, 1)) {
+			return GetEntityOfType(IEntityType.Line, 0).GetPointPosAtInPlane(i, plane);
+		} else 
+		if(HasEntitiesOfType(IEntityType.Point, 2)) {
+			return GetEntityOfType(IEntityType.Point, i).GetPointPosAtInPlane(0, plane);
+		}
+		return Vector3.zero;
+	}
+
 	protected override void OnDraw(LineCanvas canvas) {
-		Vector3 p0p = GetPointInPlane(0, null).Eval();
-		Vector3 p1p = GetPointInPlane(1, null).Eval();
+		Vector3 p0p = GetPointPosInPlane(0, null);
+		Vector3 p1p = GetPointPosInPlane(1, null);
 		drawPointsDistance(p0p, p1p, canvas, Camera.main, false, true, true, 0);
 	}
 
 	protected override Matrix4x4 OnGetBasis() {
-		var p0pos = GetPointInPlane(0, null).Eval();
-		var p1pos = GetPointInPlane(1, null).Eval();
+		var p0pos = GetPointPosInPlane(0, null);
+		var p1pos = GetPointPosInPlane(1, null);
 		return getPointsDistanceBasis(p0pos, p1pos, sketch.plane);
 	}
 

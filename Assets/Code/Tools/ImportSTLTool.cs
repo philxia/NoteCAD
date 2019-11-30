@@ -12,12 +12,14 @@ public class ImportSTLTool : Tool, IPointerDownHandler {
 	}
 
 	public void OnPointerDown(PointerEventData eventData) {
-		NoteCADJS.LoadBinaryData(DataLoaded);
+		NoteCADJS.LoadBinaryData(DataLoaded, "stl");
 	}
 
 	void DataLoaded(byte[] data) {
+		editor.PushUndo();
 		var feature = new MeshImportFeature(data);
 		feature.source = DetailEditor.instance.activeFeature;
+		feature.operation = CombineOp.Assembly;
 		DetailEditor.instance.AddFeature(feature); 
 		DetailEditor.instance.ActivateFeature(feature);
 	}

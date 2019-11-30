@@ -7,11 +7,6 @@ using System.IO;
 using System.Xml;
 using System.Collections;
 
-interface ISketch {
-	IEnumerable<IEntity> entities { get; }
-	IEntity Hover(Vector3 mouse, Camera camera, Matrix4x4 transform, ref double dist);
-}
-
 public interface IPlane {
 	Vector3 u { get; }
 	Vector3 v { get; }
@@ -40,6 +35,16 @@ public static class IPlaneUtils {
 		return plane.o + plane.u * pt.x + plane.v * pt.y + plane.n * pt.z;
 	}
 
+	public static ExpVector DirFromPlane(this IPlane plane, ExpVector dir) {
+		if(plane == null) return dir;
+		return (ExpVector)plane.u * dir.x + (ExpVector)plane.v * dir.y + (ExpVector)plane.n * dir.z;
+	}
+
+	public static Vector3 DirFromPlane(this IPlane plane, Vector3 dir) {
+		if(plane == null) return dir;
+		return plane.u * dir.x + plane.v * dir.y + plane.n * dir.z;
+	}
+
 	public static IEnumerable<Vector3> FromPlane(this IPlane plane, IEnumerable<Vector3> points) {
 		if(plane == null) return points;
 
@@ -47,7 +52,6 @@ public static class IPlaneUtils {
 		var pv = plane.v;
 		var pn = plane.n;
 		var po = plane.o;
-
 		return points.Select(pt => po + pu * pt.x + pv * pt.y + pn * pt.z);
 	}
 
@@ -65,6 +69,24 @@ public static class IPlaneUtils {
 		if(plane == null) return pt;
 		Vector3 result = new Vector3(0, 0, 0);
 		var dir = pt - plane.o;
+		result.x = Vector3.Dot(dir, plane.u);
+		result.y = Vector3.Dot(dir, plane.v);
+		result.z = Vector3.Dot(dir, plane.n);
+		return result;
+	}
+
+	public static ExpVector DirToPlane(this IPlane plane, ExpVector dir) {
+		if(plane == null) return dir;
+		ExpVector result = new ExpVector(0, 0, 0);
+		result.x = ExpVector.Dot(dir, plane.u);
+		result.y = ExpVector.Dot(dir, plane.v);
+		result.z = ExpVector.Dot(dir, plane.n);
+		return result;
+	}
+
+	public static Vector3 DirToPlane(this IPlane plane, Vector3 dir) {
+		if(plane == null) return dir;
+		Vector3 result = new Vector3(0, 0, 0);
 		result.x = Vector3.Dot(dir, plane.u);
 		result.y = Vector3.Dot(dir, plane.v);
 		result.z = Vector3.Dot(dir, plane.n);
@@ -101,15 +123,23 @@ public static class IPlaneUtils {
 		return to.ToPlane(from.FromPlane(pt));
 	}
 
+	public static Vector3 ToFrom(this IPlane to, Vector3 pt, IPlane from) {
+		return to.ToPlane(from.FromPlane(pt));
+	}
+
 	public static IEnumerable<Vector3> ToFrom(this IPlane to, IEnumerable<Vector3> points, IPlane from) {
 		return to.ToPlane(from.FromPlane(points));
 	}
 
+	public static ExpVector DirToFrom(this IPlane to, ExpVector pt, IPlane from) {
+		return to.DirToPlane(from.DirFromPlane(pt));
+	}
+
 }
 
-public class Sketch : CADObject, ISketch  {
-	List<Entity> entities = new List<Entity>();
-	List<Constraint> constraints = new List<Constraint>();
+public class Sketch : CADObject  {
+	Dictionary<Id, Entity> entities = new Dictionary<Id, Entity>();
+	Dictionary<Id, Constraint> constraints = new Dictionary<Id, Constraint>();
 	Feature feature_;
 
 	public Feature feature {
@@ -129,21 +159,15 @@ public class Sketch : CADObject, ISketch  {
 
 	public bool is3d = false;
 
-	IEnumerable<IEntity> ISketch.entities {
-		get {
-			foreach(var e in entities) yield return e;
-		}
-	}
-
 	public IEnumerable<Entity> entityList {
 		get {
-			return entities.AsEnumerable();
+			return entities.Values.AsEnumerable();
 		}
 	}
 
 	public IEnumerable<Constraint> constraintList {
 		get {
-			return constraints.AsEnumerable();
+			return constraints.Values.AsEnumerable();
 		}
 	}
 
@@ -162,32 +186,26 @@ public class Sketch : CADObject, ISketch  {
 	}
 
 	public void AddEntity(Entity e) {
-		if(entities.Contains(e)) return;
-		entities.Add(e);
+		if(entities.ContainsKey(e.guid)) return;
+		entities.Add(e.guid, e);
 		MarkDirtySketch(topo:true, entities:true);
 	}
 
 	public Entity GetEntity(Id guid) {
-		for(int i = 0; i < entities.Count(); i++) {
-			if(entities[i].guid == guid) {
-				return entities[i];
-			}
-		}
-		return null;
+		Entity result = null;
+		entities.TryGetValue(guid, out result);
+		return result;
 	}
 
 	public Constraint GetConstraint(Id guid) {
-		for(int i = 0; i < constraints.Count(); i++) {
-			if(constraints[i].guid == guid) {
-				return constraints[i];
-			}
-		}
-		return null;
+		Constraint result = null;
+		constraints.TryGetValue(guid, out result);
+		return result;
 	}
 
 	public void AddConstraint(Constraint c) {
-		if(constraints.Contains(c)) return;
-		constraints.Add(c);
+		if(constraints.ContainsKey(c.guid)) return;
+		constraints.Add(c.guid, c);
 		MarkDirtySketch(topo:c is PointsCoincident, constraints:true);
 		constraintsTopologyChanged = true;
 	}
@@ -210,15 +228,30 @@ public class Sketch : CADObject, ISketch  {
 		loopsChanged = loopsChanged || loops;
 	}
 
-	IEntity ISketch.Hover(Vector3 mouse, Camera camera, Matrix4x4 tf, ref double objDist) {
-		return Hover(mouse, camera, tf, ref objDist) as IEntity;
+	public void MarqueeSelect(Rect rect, bool wholeObject, Camera camera, Matrix4x4 tf, ref List<ICADObject> result) {
+		foreach(var en in entities) {
+			var e = en.Value;
+			if(!e.isSelectable) continue;
+			if(e.MarqueeSelect(rect, wholeObject, camera, tf)) {
+				result.Add(e);
+			}
+		}
+
+		foreach(var c in constraints.Values) {
+			if(!c.isSelectable) continue;
+			if(c.MarqueeSelect(rect, wholeObject, camera, tf)) {
+				result.Add(c);
+			}
+		}
 	}
+
 	public static double hoverRadius = 5.0;
 	public SketchObject Hover(Vector3 mouse, Camera camera, Matrix4x4 tf, ref double objDist) {
 		double min = -1.0;
 		SketchObject hoveredObject = null;
-		foreach(var e in entities) {
-			if(e.type != IEntityType.Point) continue;
+		foreach(var en in entities) {
+			var e = en.Value;
+			if(!e.isVisible) continue;
 			if(!e.isSelectable) continue;
 			var dist = e.Select(Input.mousePosition, camera, tf);
 			if(dist < 0.0) continue;
@@ -228,61 +261,49 @@ public class Sketch : CADObject, ISketch  {
 			hoveredObject = e;
 		}
 
-		if(hoveredObject != null) {
-			objDist = min;
-			return hoveredObject;
-		}
-		foreach(var e in entities) {
-			if(e.type == IEntityType.Point) continue;
-			if(!e.isSelectable) continue;
-			var dist = e.Select(Input.mousePosition, camera, tf);
-			if(dist < 0.0) continue;
-			if(dist > hoverRadius) continue;
-			if(min >= 0.0 && dist > min) continue;
-			min = dist;
-			hoveredObject = e;
-		}
 		Dictionary<Constraint, double> candidates = new Dictionary<Constraint, double>();
-		foreach(var c in constraints) {
+		foreach(var c in constraints.Values) {
+			if(!c.isVisible) continue;
 			if(!c.isSelectable) continue;
 			var dist = c.Select(Input.mousePosition, camera, tf);
 			if(dist < 0.0) continue;
 			if(dist > hoverRadius) continue;
-			if(min >= 0.0 && dist > min) continue;
+			if(min >= 0.0 && dist >= min) continue;
 			min = dist;
 			hoveredObject = c;
 			candidates.Add(c, dist);
 		}
 
-		if(candidates.Count > 0) {
-			for(int i = 0; i < candidates.Count; i++) {
-				var current = candidates.ElementAt(i).Key;
-				if(DetailEditor.instance.selection.All(id => id.ToString() != current.id.ToString())) continue;
-				var next = candidates.ElementAt((i + 1) % candidates.Count);
-				objDist = next.Value;
-				return next.Key;
+		if(hoveredObject is Constraint) {
+			if(candidates.Count > 0) {
+				for(int i = 0; i < candidates.Count; i++) {
+					var current = candidates.ElementAt(i).Key;
+					if(DetailEditor.instance.selection.All(id => id.ToString() != current.id.ToString())) continue;
+					var next = candidates.ElementAt((i + 1) % candidates.Count);
+					objDist = next.Value;
+					return next.Key;
+				}
 			}
 		}
-
 		objDist = min;
 		return hoveredObject;
 	}
 
 	public bool IsConstraintsChanged() {
-		return constraintsChanged || constraints.Any(c => c.IsChanged());
+		return constraintsChanged || constraints.Values.Any(c => c.IsChanged());
 	}
 
 	public bool IsEntitiesChanged() {
-		return entitiesChanged || entities.Any(e => e.IsChanged());
+		return entitiesChanged || entities.Any(e => e.Value.IsChanged());
 	}
 
 	public void MarkUnchanged() {
 		foreach(var e in entities) {
-			foreach(var p in e.parameters) {
+			foreach(var p in e.Value.parameters) {
 				p.changed = false;
 			}
 		}
-		foreach(var c in constraints) {
+		foreach(var c in constraints.Values) {
 			foreach(var p in c.parameters) {
 				p.changed = false;
 			}
@@ -296,7 +317,7 @@ public class Sketch : CADObject, ISketch  {
 	}
 
 	public List<List<Entity>> GenerateLoops() {
-		var all = entities.OfType<ISegmentaryEntity>().ToList();
+		var all = entities.Values.OfType<ISegmentaryEntity>().ToList();
 		var first = all.FirstOrDefault();
 		var current = first;
 		PointEntity prevPoint = null;
@@ -334,7 +355,7 @@ public class Sketch : CADObject, ISketch  {
 				continue;
 			}
 		}
-		loops.AddRange(entities.OfType<ILoopEntity>().Select(e => Enumerable.Repeat(e as Entity, 1).ToList()));
+		loops.AddRange(entities.Values.OfType<ILoopEntity>().Select(e => Enumerable.Repeat(e as Entity, 1).ToList()));
 		return loops;
 	}
 
@@ -379,8 +400,10 @@ public class Sketch : CADObject, ISketch  {
 				} else {
 					continue;
 				}
-				polygon.RemoveAt(polygon.Count - 1);
-				if(idPolygon != null) idPolygon.RemoveAt(idPolygon.Count - 1);
+				if(polygon.Count > 0) {
+					polygon.RemoveAt(polygon.Count - 1);
+					if(idPolygon != null) idPolygon.RemoveAt(idPolygon.Count - 1);
+				}
 			}
 			if(polygon.Count < 3) continue;
 			if(!Triangulation.IsClockwise(polygon)) {
@@ -393,11 +416,12 @@ public class Sketch : CADObject, ISketch  {
 		return result;
 	}
 
-	public void Write(XmlTextWriter xml) {
+	public void Write(XmlTextWriter xml, Func<SketchObject, bool> filter = null) {
 		if(entities.Count > 0) {
 			xml.WriteStartElement("entities");
-			foreach(var e in entities) {
-				if(e.parent != null) continue;
+			foreach(var en in entities) {
+				var e = en.Value;
+				if(filter != null && !filter(e as SketchObject) || filter == null && e.parent != null) continue;
 				e.Write(xml);
 			}
 			xml.WriteEndElement();
@@ -405,31 +429,47 @@ public class Sketch : CADObject, ISketch  {
 
 		if(constraints.Count > 0) {
 			xml.WriteStartElement("constraints");
-			foreach(var c in constraints) {
+			foreach(var c in constraints.Values) {
+				if(filter != null && !filter(c as SketchObject)) continue;
 				c.Write(xml);
 			}
 			xml.WriteEndElement();
 		}
 	}
 
-	public void Read(XmlNode xml) {
-		Type[] types = { typeof(Sketch) };
-		object[] param = { this };
+	public Dictionary<Id, Id> idMapping = null;
+
+	public void Read(XmlNode xml, bool remap = false) {
+
+		if(remap) {
+			idMapping = new Dictionary<Id, Id>();
+		}
+
 		foreach(XmlNode nodeKind in xml.ChildNodes) {
 			if(nodeKind.Name == "entities") {
 				foreach(XmlNode node in nodeKind.ChildNodes) {
 					if(node.Name != "entity") continue;
 					var type = node.Attributes["type"].Value;
-					var entity = Type.GetType(type).GetConstructor(types).Invoke(param) as Entity;
+					var entity = Entity.New(type, this);
 					entity.Read(node);
+				}
+				var oldEntities = entities.Values.ToList();
+				entities.Clear();
+				foreach(var e in oldEntities) {
+					entities.Add(e.guid, e);
 				}
 			}
 			if(nodeKind.Name == "constraints") {
 				foreach(XmlNode node in nodeKind.ChildNodes) {
 					if(node.Name != "constraint") continue;
-					var type = node.Attributes["type"].Value;
-					var constraint = Type.GetType(type).GetConstructor(types).Invoke(param) as Constraint;
+					var typeName = node.Attributes["type"].Value;
+					var constraint = Constraint.New(typeName, this);
 					constraint.Read(node);
+				}
+				var oldConstraints = constraints.Values.ToList();
+				constraints.Clear();
+				foreach(var c in oldConstraints) {
+					constraints.Add(c.guid, c);
 				}
 			}
 		}
@@ -445,7 +485,7 @@ public class Sketch : CADObject, ISketch  {
 		}
 		if(sko is Constraint) {
 			var c = sko as Constraint;
-			if(constraints.Remove(c)) {
+			if(constraints.Remove(c.guid)) {
 				c.Destroy();
 				MarkDirtySketch(topo:c is PointsCoincident, constraints:true);
 				constraintsTopologyChanged = true;
@@ -455,7 +495,7 @@ public class Sketch : CADObject, ISketch  {
 		}
 		if(sko is Entity) {
 			var e = sko as Entity;
-			if(entities.Remove(e)) {
+			if(entities.Remove(e.guid)) {
 				e.Destroy();
 				MarkDirtySketch(topo:true, entities:true);
 			} else {
@@ -466,16 +506,17 @@ public class Sketch : CADObject, ISketch  {
 
 	public void Clear() {
 		while(entities.Count > 0) {
-			entities[0].Destroy();
+			entities.First().Value.Destroy();
 		}
-		for(int i = 0; i < constraints.Count; i++) {
-			constraints[i].Destroy();
+		while(constraints.Count > 0) {
+			constraints.First().Value.Destroy();
 		}
 		MarkDirtySketch(topo:true, entities:true, constraints:true, loops:true);
 	}
 
 	public bool IsCrossed(Entity entity, ref Vector3 intersection) {
-		foreach(var e in entities) {
+		foreach(var en in entities) {
+			var e = en.Value;
 			if(e == entity) continue;
 			if(e.IsCrossed(entity, ref intersection)) {
 				return true;
@@ -485,7 +526,7 @@ public class Sketch : CADObject, ISketch  {
 	}
 
 	public void ReplaceEntityInConstraints(Entity before, Entity after) {
-		foreach(var c in constraints) {
+		foreach(var c in constraints.Values) {
 			if(c.ReplaceEntity(before, after)) {
 				MarkDirtySketch(constraints:true, topo:c is PointsCoincident);
 			}
@@ -493,11 +534,12 @@ public class Sketch : CADObject, ISketch  {
 	}
 
 	public void GenerateEquations(EquationSystem system) {
-		foreach(var e in entities) {
+		foreach(var en in entities) {
+			var e = en.Value;
 			system.AddParameters(e.parameters);
 			system.AddEquations(e.equations);
 		}
-		foreach(var c in constraints) {
+		foreach(var c in constraints.Values) {
 			system.AddParameters(c.parameters);
 			system.AddEquations(c.equations);
 		}
@@ -510,8 +552,21 @@ public class Sketch : CADObject, ISketch  {
 	}
 
 	public Bounds calculateBounds() {
-		var points = entities.SelectMany(e => e.SegmentsInPlane(null)).ToArray();
+		var points = entities.SelectMany(e => e.Value.SegmentsInPlane(null)).ToArray();
 		if(points.Length == 0) return new Bounds();
 		return GeometryUtility.CalculateBounds(points, Matrix4x4.identity);
+	}
+
+	public PointEntity GetOtherPointByPoint(PointEntity point, float eps) {
+		Vector3 pos = point.pos;
+		foreach(var en in entities) {
+			var e = en.Value;
+			if(e.type != IEntityType.Point) continue;
+			var pt = e as PointEntity;
+			if(pt == point) continue;
+			if((pt.pos - point.pos).sqrMagnitude > eps * eps) continue;
+			return pt;
+		}
+		return null;
 	}
 }

@@ -6,6 +6,8 @@ using UnityEngine.UI;
 using System.Linq;
 using Csg;
 using RuntimeInspectorNamespace;
+using System.IO;
+using System.Xml;
 
 public class DetailEditor : MonoBehaviour {
 
@@ -22,6 +24,10 @@ public class DetailEditor : MonoBehaviour {
 
 	Detail detail;
 
+	public Detail GetDetail() { return detail; }
+
+	public UndoRedo undoRedo;
+
 	public GameObject labelParent;
 	public Text resultText;
 	public GameObject featuresContent;
@@ -37,7 +43,7 @@ public class DetailEditor : MonoBehaviour {
 
 	LineCanvas canvas;
 	EquationSystem sys = new EquationSystem();
-	public List<IdPath> selection = new List<IdPath>();
+	public HashSet<IdPath> selection = new HashSet<IdPath>();
 
 	ICADObject hovered_;
 	public ICADObject hovered {
@@ -93,12 +99,17 @@ public class DetailEditor : MonoBehaviour {
 		}
 	}
 	
+	public bool IsSelected(ICADObject obj) {
+		if(obj == null) return false;
+		return selection.Contains(obj.id);
+	}
+
 	IEnumerator LoadWWWFile(string url) {
 		WWW www = new WWW(url);
 		yield return www;
 		ReadXml(www.text);
 	}
-
+	
 	public bool IsFirstMeshFeature(MeshFeature mf) {
 		var fi = detail.features.FindIndex(f => f is MeshFeature);
 		var mi = detail.features.IndexOf(mf);
@@ -115,6 +126,18 @@ public class DetailEditor : MonoBehaviour {
 		return go;
 	}
 
+	DetailEditor() {
+		undoRedo = new UndoRedo(this);
+	}
+
+	public void PushUndo() {
+		undoRedo.Push();
+	}
+
+	public void PopUndo() {
+		undoRedo.Pop();
+	}
+
 	private void Start() {
 		instance_ = this;
 		mesh = new Mesh();
@@ -122,12 +145,12 @@ public class DetailEditor : MonoBehaviour {
 		CreateMeshObject("DetailMesh", mesh, EntityConfig.instance.meshMaterial);
 		CreateMeshObject("DetailMeshSelection", selectedMesh, EntityConfig.instance.loopMaterial);
 		New();
+		canvas = GameObject.Instantiate(EntityConfig.instance.lineCanvas);
 		if(NoteCADJS.GetParam("filename") != "") {
 			var uri = new Uri(Application.absoluteURL);
 			var url = "http://" + uri.Host + ":" + uri.Port + "/Files/" + NoteCADJS.GetParam("filename");
 			StartCoroutine(LoadWWWFile(url));
 		}
-		canvas = GameObject.Instantiate(EntityConfig.instance.lineCanvas);
 	}
 
 	void UpdateFeatures() {
@@ -162,11 +185,13 @@ public class DetailEditor : MonoBehaviour {
 	public bool suppressSolve = false;
 	private void Update() {
 		if(activeFeature != null) {
-			if(currentSketch != null && currentSketch.IsTopologyChanged()) {
-				UpdateSystem();
+			if(currentSketch != null && (currentSketch.GetSketch().IsConstraintsChanged() || currentSketch.GetSketch().IsEntitiesChanged()) || sys.IsDirty) {
 				suppressSolve = false;
 			}
-			var res = !suppressSolve ? sys.Solve() : EquationSystem.SolveResult.DIDNT_CONVEGE;
+			if(currentSketch != null && currentSketch.IsTopologyChanged()) {
+				UpdateSystem();
+			}
+			var res = (!suppressSolve || sys.HasDragged()) ? sys.Solve() : EquationSystem.SolveResult.DIDNT_CONVEGE;
 			if(res == EquationSystem.SolveResult.DIDNT_CONVEGE) {
 				suppressSolve = true;
 			}
@@ -181,7 +206,7 @@ public class DetailEditor : MonoBehaviour {
 						dofText = "<color=\"#FF3030\">DOF: " + dof + "</color>\n";
 					} else if(dof == 0) {
 						dofText = "<color=\"#30FF30\">DOF: " + dof + "</color>\n";
-					} else {
+					} else {	
 						dofText = "<color=\"#FFFFFF\">DOF: " + dof + "</color>\n";
 					}
 				} else {
@@ -189,11 +214,14 @@ public class DetailEditor : MonoBehaviour {
 				}
 			}
 			result += dofText;
+			result += "Undo: " + undoRedo.Count() + "\n";
+			result += "UndoSize: " + undoRedo.Size() + "\n";
 			//result += sys.stats;
 			resultText.text = result.ToString();
 		}
 
-		detail.Update();
+		detail.UpdateUntil(activeFeature);
+		//detail.Update();
 		meshDirty = meshDirty | detail.features.OfType<MeshFeature>().Any(f => f.dirty);
 		detail.MarkDirty();
 		detail.UpdateDirtyUntil(activeFeature);
@@ -218,6 +246,7 @@ public class DetailEditor : MonoBehaviour {
 								case CombineOp.Union: mf.combined = Solids.Union(result, mf.solid); break;
 								case CombineOp.Difference: mf.combined = Solids.Difference(result, mf.solid); break;
 								case CombineOp.Intersection: mf.combined = Solids.Intersection(result, mf.solid); break;
+								case CombineOp.Assembly: mf.combined = Solids.Assembly(result, mf.solid); break;
 							}
 							combinedCount++;
 						}
@@ -262,7 +291,7 @@ public class DetailEditor : MonoBehaviour {
 		}
 
 		if(selection.Count == 1) {
-			var obj = detail.GetObjectById(selection[0]);
+			var obj = detail.GetObjectById(selection.First());
 			inspector.Inspect(obj);
 		} else {
 			inspector.Inspect(activeFeature);
@@ -271,19 +300,24 @@ public class DetailEditor : MonoBehaviour {
 		if(activeFeature is SketchFeatureBase) {
 			var sk = activeFeature as SketchFeatureBase;
 			sk.DrawConstraints(canvas);
+
+			//var skk = activeFeature as SketchFeature;
+			//if(skk != null) skk.DrawTriangulation(canvas);
 		} else {
 			canvas.ClearStyle("constraints");
 		}
 	}
 
 	void DrawCadObject(ICADObject obj, string style) {
+		var sko = obj as SketchObject;
+		if(sko != null && !sko.isVisible) return;
 		var he = obj as IEntity;
 		canvas.SetStyle((he != null && he.type == IEntityType.Point) ? style + "Points" : style);
 		if(he != null) {
 			canvas.DrawSegments((obj as IEntity).SegmentsInPlane(null));
 		} else
-		if(obj is SketchObject) {
-			(obj as SketchObject).Draw(canvas);
+		if(sko != null) {
+			sko.Draw(canvas);
 		}
 	}
 
@@ -308,18 +342,34 @@ public class DetailEditor : MonoBehaviour {
 		if(activeFeature is SketchFeatureBase) {
 			var sk = activeFeature as SketchFeatureBase;
 			foreach(var c in sk.GetSketch().constraintList) {
+				if(!c.isVisible) continue;
 				if(!(c is ValueConstraint)) continue;
 				var constraint = c as ValueConstraint;
 				if(!constraint.valueVisible) continue;
-				if(hovered == c) {
-					style.normal.textColor = canvas.GetStyle("hovered").color;
-				} else {
-					style.normal.textColor = Color.white;
-				}
+				if(MoveTool.instance.IsConstraintEditing(constraint)) continue;
 				var pos = constraint.pos;
 				pos = Camera.main.WorldToScreenPoint(pos);
 				var txt = constraint.GetLabel();
-				GUI.Label(new Rect(pos.x, Camera.main.pixelHeight - pos.y, 0, 0), txt, style);
+				var rect = new Rect(pos.x, Camera.main.pixelHeight - pos.y, 0, 0);
+				var isSelected = IsSelected(c);
+				style.normal.textColor = Color.black;
+				for(int i = -1; i <= 1; i++) {
+					for(int j = -1; j <= 1; j++) {
+						if(i == 0 || j == 0) continue;
+						GUI.Label(new Rect(rect.x + i, rect.y + j, 0, 0), txt, style);
+					}
+				}
+
+				if(hovered == c) {
+					style.normal.textColor = canvas.GetStyle("hovered").color;
+				} else 
+				if(isSelected) {
+					style.normal.textColor = canvas.GetStyle("selected").color;
+				} else {
+					style.normal.textColor = Color.white;
+				}
+				GUI.Label(rect, txt, style);
+
 			}
 		}
 	}
@@ -330,6 +380,7 @@ public class DetailEditor : MonoBehaviour {
 			detail.Clear();
 		}
 		selection.Clear();
+		undoRedo.Clear();
 		activeFeature = null;
 		detail = new Detail();
 		var sk = new SketchFeature();
@@ -342,11 +393,77 @@ public class DetailEditor : MonoBehaviour {
 		ActivateFeature(sk);
 	}
 
-	public void ReadXml(string xml) {
+	public void ReadXml(string xml, bool readView = true, bool activateLast = true) {
 		activeFeature = null;
-		detail.ReadXml(xml);
-		UpdateFeatures();
-		ActivateFeature(detail.features.Last());
+		IdPath active = null;
+		detail.ReadXml(xml, readView, out active);
+		if(active.IsNull()) active = detail.features.Last().id;
+		UpdateFeatures();	
+		ActivateFeature(active);
+	}
+
+	public string CopySelection() {
+		if(currentSketch == null || currentSketch.GetSketch() == null) return "";
+
+		var text = new StringWriter();
+		var xml = new XmlTextWriter(text);
+		xml.Formatting = Formatting.Indented;
+		xml.IndentChar = '\t';
+		xml.Indentation = 1;
+		xml.WriteStartDocument();
+
+		xml.WriteStartElement("copy");
+		xml.WriteAttributeString("program", "NoteCAD");
+		xml.WriteAttributeString("version", "0");
+		xml.WriteAttributeString("pos", Tool.MousePos.ToStr());
+
+		var sk = currentSketch.GetSketch();
+		var objects = new HashSet<SketchObject>(
+			selection
+				.Select(s => detail.GetObjectById(s))
+				.OfType<SketchObject>()
+				.Where(o => !(o is Constraint) || (o as Constraint).objects.All(co => co is SketchObject && (co as SketchObject).sketch == sk)));
+
+		sk.Write(xml, o => 
+			objects.Contains(o) && 
+			(!(o is Entity) || !objects.Contains((o as Entity).parent)) &&
+			(!(o is Constraint) || (o as Constraint).objects.All(co => co is SketchObject && objects.Contains(co as SketchObject)))
+		);
+
+		xml.WriteEndElement();
+		return text.ToString();
+	}
+	
+	public List<IdPath> Paste(string str) {
+		if(currentSketch == null || currentSketch.GetSketch() == null) return null;
+
+		var xml = new XmlDocument();
+		xml.LoadXml(str);
+
+		if(xml.DocumentElement.Attributes["program"] == null || xml.DocumentElement.Attributes["program"].Value != "NoteCAD") {
+			return null;
+		}
+
+		var pos = xml.DocumentElement.Attributes["pos"].Value.ToVector3();
+		var delta = Tool.MousePos - pos;
+
+		var sk = currentSketch.GetSketch();
+		sk.Read(xml.DocumentElement, true);
+		var result = sk.idMapping;
+		sk.idMapping = null;
+
+		var objs = result.Select(o => sk.GetChild(o.Value)).ToList();
+		MoveTool.ShiftObjects(objs, delta);
+
+		return objs.Select(o => o.id).ToList();
+	}
+
+	public void MarqueeSelect(Rect rect, bool wholeObject) {
+		var result = new List<ICADObject>();
+		detail.MarqueeSelectUntil(rect, wholeObject, Camera.main, UnityEngine.Matrix4x4.identity, ref result, activeFeature);
+		foreach(var co in result) {
+			selection.Add(co.id);
+		}
 	}
 
 	public string WriteXml() {
@@ -357,6 +474,11 @@ public class DetailEditor : MonoBehaviour {
 		detail.AddFeature(feature);
 		meshDirty = true;
 		UpdateFeatures();
+	}
+
+	public void ActivateFeature(IdPath path) {
+		var feature = (Feature)detail.GetObjectById(path);
+		ActivateFeature(feature);
 	}
 
 	public void ActivateFeature(Feature feature) {

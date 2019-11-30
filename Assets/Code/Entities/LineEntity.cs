@@ -51,9 +51,27 @@ public class LineEntity : Entity, ISegmentaryEntity {
 		return GeomUtils.DistancePointSegment2D(mouse, ap, bp);
 	}
 
+	protected override bool OnMarqueeSelect(Rect rect, bool wholeObject, Camera camera, Matrix4x4 tf) {
+		var ap = camera.WorldToScreenPoint(tf.MultiplyPoint(p0.GetPosition()));
+		var bp = camera.WorldToScreenPoint(tf.MultiplyPoint(p1.GetPosition()));
+		return MarqueeSelectSegment(rect, wholeObject, ap, bp);
+	}
+
 	public override ExpVector PointOn(Exp t) {
 		var pt0 = p0.exp;
 		var pt1 = p1.exp;
 		return pt0 + (pt1 - pt0) * t;
+	}
+
+	public override ExpVector TangentAt(Exp t) {
+		return p1.exp - p0.exp;
+	}
+
+	public override Exp Length() {
+		return (p1.exp - p0.exp).Magnitude();
+	}
+
+	public override Exp Radius() {
+		return null;
 	}
 }

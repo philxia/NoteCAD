@@ -14,15 +14,16 @@ public class HVTool : Tool {
 		var entity = sko as IEntity;
 		if(entity == null) return;
 
-		if(p0 == null && entity is LineEntity) {
-			var line = entity as LineEntity;
-			constraint = new HVConstraint(line.sketch, line.p0, line.p1);
+		if(p0 == null && entity.type == IEntityType.Line) {
+			editor.PushUndo();
+			constraint = new HVConstraint(DetailEditor.instance.currentSketch.GetSketch(), entity);
 			constraint.orientation = vertical ? HVOrientation.OX : HVOrientation.OY;
 			return;
 		}
 
 		if(entity.type != IEntityType.Point) return;
 		if(p0 != null) {
+			editor.PushUndo();
 			constraint = new HVConstraint(DetailEditor.instance.currentSketch.GetSketch(), p0, entity);
 			constraint.orientation = vertical ? HVOrientation.OX : HVOrientation.OY;
 			p0 = null;

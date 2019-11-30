@@ -56,6 +56,21 @@ class ExtrudedEntity : IEntity {
 		return entity.plane.FromPlane(entity.PointOn(t)) + shift;
 	}
 
+	public ExpVector TangentAt(Exp t) {
+		return entity.plane.DirFromPlane(entity.TangentAt(t));
+	}
+
+	public Exp Length() {
+		return entity.Length();
+	}
+
+	public Exp Radius() {
+		return entity.Radius();
+	}
+
+	public ExpVector Center() {
+		return entity.Center();
+	}
 }
 
 class ExtrudedPointEntity : IEntity {
@@ -105,6 +120,22 @@ class ExtrudedPointEntity : IEntity {
 		var p1 = exp + extrusion.extrusionDir;
 		return p0 + (p1 - p0) * t;
 	}
+
+	public ExpVector TangentAt(Exp t) {
+		return extrusion.extrusionDir;
+	}
+
+	public Exp Length() {
+		return extrusion.extrude;
+	}
+
+	public Exp Radius() {
+		return null;
+	}
+
+	public ExpVector Center() {
+		return null;
+	}
 }
 /*
 class ExtrudedPlane : IEntity, IPlane {
@@ -152,10 +183,9 @@ class ExtrudedPlane : IEntity, IPlane {
 [Serializable]
 public class ExtrusionFeature : MeshFeature {
 	public Param extrude = new Param("e", 5.0);
-	Mesh mesh = new Mesh();
 	GameObject go;
 
-	public Sketch sketch {
+	public Sketch sourceSketch {
 		get {
 			return (source as SketchFeature).GetSketch();
 		}
@@ -171,7 +201,7 @@ public class ExtrusionFeature : MeshFeature {
 		var result = base.GetChild(guid);
 		if(result != null) return result;
 
-		var entity = sketch.GetEntity(guid.WithoutSecond());
+		var entity = sourceSketch.GetEntity(guid.WithoutSecond());
 		if(guid.second == 2) return new ExtrudedPointEntity(entity as PointEntity, this);
 		return new ExtrudedEntity(entity, this, guid.second);
 	}

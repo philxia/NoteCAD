@@ -53,6 +53,23 @@ class RevolvedEntity : IEntity {
 		return feature.Transform(entity.plane.FromPlane(entity.PointOn(t)), index);
 	}
 
+	public ExpVector TangentAt(Exp t) {
+		return null;
+	}
+
+	public Exp Length() {
+		return null;
+	}
+
+	public Exp Radius() {
+		return null;
+	}
+
+	public ExpVector Center() {
+		return null;
+	}
+
+
 }
 
 class RevolvedPointEntity : IEntity {
@@ -99,7 +116,7 @@ class RevolvedPointEntity : IEntity {
 			var axn = ax.normalized;
 			var o = feature.GetOrigin().Eval();
 			var prj = ExpVector.ProjectPointToLine(point, o, o + ax);
-			var ra = Mathf.Atan2((float)feature.step.value / 2.0f, (point - prj).magnitude);
+			var ra = Mathf.Atan2((float)feature.step.value / 4.0f, (point - prj).magnitude);
 			var rot = ExpVector.RotateAround(point, point - prj, o, ra);
 
 			for(int i = 0; i <= subdiv; i++) {
@@ -115,6 +132,29 @@ class RevolvedPointEntity : IEntity {
 		var exp = entity.plane.FromPlane(entity.exp);
 		return feature.PointOn(t, exp);
 	}
+
+	public ExpVector TangentAt(Exp t) {
+		Param p = new Param("pOn");
+		var pt = PointOn(p);
+		var result = new ExpVector(pt.x.Deriv(p), pt.y.Deriv(p), pt.z.Deriv(p));
+		result.x.Substitute(p, t);
+		result.y.Substitute(p, t);
+		result.z.Substitute(p, t);
+		return result;
+	}
+
+	public Exp Length() {
+		return null;
+	}
+
+	public Exp Radius() {
+		return null;
+	}
+
+	public ExpVector Center() {
+		return null;
+	}
+
 }
 /*
 class ExtrudedPlane : IEntity, IPlane {
@@ -164,8 +204,6 @@ public class RevolveFeature : MeshFeature {
 	public Param angle = new Param("a", 2f * Math.PI);
 	public Param step = new Param("s", 0f);
 
-	Mesh mesh = new Mesh();
-
 	double _meshAngleStep = 20f;	
 	[SerializeField] public double meshAngleStep { get { return _meshAngleStep; } set { _meshAngleStep = value; MarkDirty(); } }
 
@@ -197,7 +235,6 @@ public class RevolveFeature : MeshFeature {
 
 	IdPath axisId = new IdPath();
 	IdPath originId = new IdPath();
-	bool transformDirty = false;
 	bool shouldInvertAxis = false;
 
 	public IEntity axis {
@@ -206,7 +243,6 @@ public class RevolveFeature : MeshFeature {
 		}
 		set {
 			axisId = value.id;
-			transformDirty = true;
 		}
 	}
 	
@@ -216,11 +252,10 @@ public class RevolveFeature : MeshFeature {
 		}
 		set {
 			originId = value.id;
-			transformDirty = true;
 		}
 	}
 
-	public Sketch sketch {
+	public Sketch sourceSketch {
 		get {
 			return (source as SketchFeature).GetSketch();
 		}
@@ -230,7 +265,7 @@ public class RevolveFeature : MeshFeature {
 		var result = base.GetChild(guid);
 		if(result != null) return result;
 
-		var entity = sketch.GetEntity(guid.WithoutSecond());
+		var entity = sourceSketch.GetEntity(guid.WithoutSecond());
 		if(guid.second == 2) return new RevolvedPointEntity(entity as PointEntity, this);
 		return new RevolvedEntity(entity, this, guid.second);
 	}
@@ -274,7 +309,7 @@ public class RevolveFeature : MeshFeature {
 		var axn = ax.Normalized();
 		var o = GetOrigin();
 		var prj = ExpVector.ProjectPointToLine(point, o, o + ax);
-		var ra = Exp.Atan2(new Exp(step) / 2.0, (point - prj).Magnitude());
+		var ra = Exp.Atan2(new Exp(step) / 4.0, (point - prj).Magnitude());
 		*/
 		var ax = GetAxis().Eval();
 		var axn = ax.normalized;
@@ -282,7 +317,7 @@ public class RevolveFeature : MeshFeature {
 		var prj = ExpVector.ProjectPointToLine(point.Eval(), o, o + ax);
 
 		var t = a / (2.0 * Mathf.PI);
-		var ra = Exp.Atan2(new Exp(step) / 2.0, (point.Eval() - prj).magnitude);
+		var ra = Exp.Atan2(new Exp(step) / 4.0, (point.Eval() - prj).magnitude);
 		var res = ExpVector.RotateAround(point, point - prj, o, ra);
 		res = ExpVector.RotateAround(res, ax, o, a);
 		return res + (ExpVector)axn * t * step;
@@ -294,7 +329,7 @@ public class RevolveFeature : MeshFeature {
 		var t = a / (2.0f * Mathf.PI);
 		var o = GetOrigin().Eval();
 		var prj = ExpVector.ProjectPointToLine(point, o, o + ax);
-		var ra = Mathf.Atan2((float)step.value / 2.0f, (point - prj).magnitude);
+		var ra = Mathf.Atan2((float)step.value / 4.0f, (point - prj).magnitude);
 		var res = ExpVector.RotateAround(point, point - prj, o, ra);
 		res = ExpVector.RotateAround(res, ax, o, a);
 		return res + axn * t * (float)step.value;
@@ -314,7 +349,7 @@ public class RevolveFeature : MeshFeature {
 			var prj = ExpVector.ProjectPointToLine(pos, o, o + ax);
 			if((prj - pos).magnitude < 1e-6) continue;
 
-			var ax1 = Vector3.Cross(sketch.plane.n, pos - prj);
+			var ax1 = Vector3.Cross(sourceSketch.plane.n, pos - prj);
 			shouldInvertAxis = (Vector3.Dot(ax, ax1) > 0f);
 			axisDirectionFound = true;
 			break;
@@ -328,7 +363,7 @@ public class RevolveFeature : MeshFeature {
 					var prj = ExpVector.ProjectPointToLine(pos, o, o + ax);
 					if((prj - pos).magnitude < 1e-6) continue;
 
-					var ax1 = Vector3.Cross(sketch.plane.n, pos - prj);
+					var ax1 = Vector3.Cross(sourceSketch.plane.n, pos - prj);
 					shouldInvertAxis = (Vector3.Dot(ax, ax1) > 0f);
 					axisDirectionFound = true;
 					break;
@@ -356,6 +391,8 @@ public class RevolveFeature : MeshFeature {
 		xml.WriteAttributeString("meshAngleStep", meshAngleStep.ToStr());
 		xml.WriteAttributeString("axis", axisId.ToString());
 		xml.WriteAttributeString("origin", originId.ToString());
+		xml.WriteAttributeString("angleFixed", angleFixed.ToString());
+		xml.WriteAttributeString("stepFixed", stepFixed.ToString());
 	}
 
 	protected override void OnReadMeshFeature(XmlNode xml) {
@@ -364,6 +401,8 @@ public class RevolveFeature : MeshFeature {
 		meshAngleStep = xml.Attributes["meshAngleStep"].Value.ToDouble();
 		axisId.Parse(xml.Attributes["axis"].Value);
 		originId.Parse(xml.Attributes["origin"].Value);
+		angleFixed = Convert.ToBoolean(xml.Attributes["angleFixed"].Value);
+		stepFixed = Convert.ToBoolean(xml.Attributes["stepFixed"].Value);
 	}
 
 	protected override ICADObject OnHover(Vector3 mouse, Camera camera, UnityEngine.Matrix4x4 tf, ref double dist) {
@@ -372,7 +411,7 @@ public class RevolveFeature : MeshFeature {
 		var points = sk.GetSketch().entityList.OfType<PointEntity>();
 		double min = -1.0;
 		IEntity hover = null;
-		var sktf = tf * sk.GetTransform();
+		//var sktf = tf * sk.GetTransform();
 		foreach(var p in points) {
 			var e = new RevolvedPointEntity(p, this);
 			double d = e.Hover(mouse, camera, tf);
@@ -383,7 +422,7 @@ public class RevolveFeature : MeshFeature {
 			hover = e;
 		}
 
-		foreach(var p in sketch.entityList) {
+		foreach(var p in sourceSketch.entityList) {
 			var e = new RevolvedEntity(p, this, 0);
 			double d = e.Hover(mouse, camera, tf);
 			if(d < 0) continue;
@@ -393,7 +432,7 @@ public class RevolveFeature : MeshFeature {
 			hover = e;
 		}
 
-		foreach(var p in sketch.entityList) {
+		foreach(var p in sourceSketch.entityList) {
 			var e = new RevolvedEntity(p, this, 1);
 			double d = e.Hover(mouse, camera, tf);
 			if(d < 0) continue;

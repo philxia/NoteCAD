@@ -52,6 +52,16 @@ public class Detail : Feature {
 		}
 	}
 
+	public void UpdateUntil(Feature until) {
+		foreach(var f in features) {
+			f.Update();
+			if(f == until) break;
+		}
+		if(features.Any(f => f.dirty)) {
+			MarkDirty();
+		}
+	}
+
 	public void UpdateDirtyUntil(Feature until) {
 		foreach(var f in features) {
 			f.UpdateDirty();
@@ -59,7 +69,7 @@ public class Detail : Feature {
 		}
 	}
 
-	public void ReadXml(string str) {
+	public void ReadXml(string str, bool readView, out IdPath active) {
 		Clear();
 		var xml = new XmlDocument();
 		xml.LoadXml(str);
@@ -68,14 +78,22 @@ public class Detail : Feature {
 			guid_ = idGenerator.Create(0);
 		}
 
-		if(xml.DocumentElement.Attributes["viewPos"] != null) {
-			Camera.main.transform.position = xml.DocumentElement.Attributes["viewPos"].Value.ToVector3();
+		if(readView) {
+			if(xml.DocumentElement.Attributes["viewPos"] != null) {
+				Camera.main.transform.position = xml.DocumentElement.Attributes["viewPos"].Value.ToVector3();
+			}
+			if(xml.DocumentElement.Attributes["viewRot"] != null) {
+				Camera.main.transform.rotation = xml.DocumentElement.Attributes["viewRot"].Value.ToQuaternion();
+			}
+			if(xml.DocumentElement.Attributes["viewSize"] != null) {
+				Camera.main.orthographicSize = xml.DocumentElement.Attributes["viewSize"].Value.ToFloat();
+			}
 		}
-		if(xml.DocumentElement.Attributes["viewRot"] != null) {
-			Camera.main.transform.rotation = xml.DocumentElement.Attributes["viewRot"].Value.ToQuaternion();
-		}
-		if(xml.DocumentElement.Attributes["viewSize"] != null) {
-			Camera.main.orthographicSize = xml.DocumentElement.Attributes["viewSize"].Value.ToFloat();
+
+		if(xml.DocumentElement.Attributes["activeFeature"] != null) {
+			active = IdPath.From(xml.DocumentElement.Attributes["activeFeature"].Value);
+		} else {
+			active = null;
 		}
 
 		foreach(XmlNode node in xml.DocumentElement) {
@@ -99,12 +117,23 @@ public class Detail : Feature {
 		xml.WriteAttributeString("viewPos", Camera.main.transform.position.ToStr());
 		xml.WriteAttributeString("viewRot", Camera.main.transform.rotation.ToStr());
 		xml.WriteAttributeString("viewSize", Camera.main.orthographicSize.ToStr());
+		xml.WriteAttributeString("activeFeature", DetailEditor.instance.activeFeature.id.ToString());
 
 		foreach(var f in features) {
 			f.Write(xml);
 		}
 		xml.WriteEndElement();
 		return text.ToString();
+	}
+
+	public void MarqueeSelectUntil(Rect rect, bool wholeObject, Camera camera, Matrix4x4 tf, ref List<ICADObject> result, Feature feature) {
+		foreach(var f in features) {
+			if(!f.ShouldHoverWhenInactive() && !f.active) {
+				continue;
+			}
+			f.MarqueeSelect(rect, wholeObject, camera, tf, ref result);
+			if(f == feature) break;
+		}
 	}
 
 	public ICADObject HoverUntil(Vector3 mouse, Camera camera, Matrix4x4 tf, ref double objDist, Feature feature) {
@@ -117,7 +146,7 @@ public class Detail : Feature {
 			double dist = -1.0;
 			var hovered = f.Hover(mouse, camera, tf, ref dist);
 
-			if(dist >= 0.0 && dist < Sketch.hoverRadius && (min < 0.0 || dist < min)) {
+			if(dist >= 0.0 && dist < Sketch.hoverRadius && (min < 0.0 || dist <= min)) {
 				result = hovered;
 				min = dist;
 			}

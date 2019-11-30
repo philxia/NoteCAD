@@ -35,6 +35,13 @@ public static class MeshUtils {
 
 	}
 
+	public static void DrawTriangulation(List<List<Vector3>> polygons, LineCanvas canvas) {
+		foreach(var p in polygons) {
+			var pv = new List<Vector3>(p);
+			/*var triangles = */Triangulation.Triangulate(pv, canvas);
+		}
+	}
+
 	public static void CreateMeshExtrusion(List<List<Vector3>> polygons, float extrude, ref Mesh mesh) {
 		var capacity = polygons.Sum(p => (p.Count - 2) * 3 + p.Count) * 2;
 		var vertices = new List<Vector3>(capacity);
@@ -170,7 +177,7 @@ public static class MeshUtils {
 		if(!isHelix && Mathf.Abs(angle) > 360f) angle = Mathf.Sign(angle) * 360f;
 		bool inversed = angle < 0f;
 		int subdiv = (int)Mathf.Ceil(Math.Abs(angle) / angleStep);
-		var drot = UnityEngine.Matrix4x4.Translate(origin) * UnityEngine.Matrix4x4.Rotate(Quaternion.AngleAxis(angle / subdiv, axis)) * UnityEngine.Matrix4x4.Translate(-origin);
+		//var drot = UnityEngine.Matrix4x4.Translate(origin) * UnityEngine.Matrix4x4.Rotate(Quaternion.AngleAxis(angle / subdiv, axis)) * UnityEngine.Matrix4x4.Translate(-origin);
 
 		Func<float, Vector3, Vector3> PointOn = (float a, Vector3 point) => {
 			var ax = axis;
@@ -178,7 +185,7 @@ public static class MeshUtils {
 			var t = a / 360.0f;
 			var o = origin;
 			var prj = ExpVector.ProjectPointToLine(point, o, o + ax);
-			var ra = Mathf.Atan2(helixStep / 2.0f, (point - prj).magnitude);
+			var ra = Mathf.Atan2(helixStep / 4.0f, (point - prj).magnitude);
 			var res = ExpVector.RotateAround(point, point - prj, o, ra);
 			res = ExpVector.RotateAround(res, ax, o, a * Mathf.PI / 180.0f);
 			return res + axn * t * helixStep;
@@ -429,6 +436,7 @@ public static class MeshUtils {
 	}
 
 	public static void FromSolid(this Mesh mesh, Solid solid) {
+		mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
 		var vertices = new List<Vector3>();
 
 		foreach(var polygon in solid.Polygons) {

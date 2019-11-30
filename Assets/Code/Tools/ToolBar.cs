@@ -40,15 +40,35 @@ public class ToolBar : MonoBehaviour {
 		return results.Count > 0;
 	}
 
+	private bool IsInputFieldFocused() {
+		var cur = EventSystem.current.currentSelectedGameObject;
+		return cur != null && cur.GetComponent<InputField>() != null;
+	}
+
 	float doubleClickTime;
+	int doubleClickFrame;
 	void Update() {
 		doubleClickTime += Time.deltaTime;
-		foreach(var t in tools) {
-			foreach(var hk in t.hotkeys) {
-				if(Input.GetKeyDown(hk)) {
+		doubleClickFrame++;
+		if(!IsInputFieldFocused()) {
+			foreach(var t in tools) {
+				bool activated = false;
+				foreach(var hk in t.hotkeys) {
+					var ctrl = (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl));
+					if(t.ctrl != ctrl) continue;
+					/*if(hk == KeyCode.Mouse1) {
+						if(CameraController.instance.WasMoved || !Input.GetKeyUp(hk)) {
+							continue;
+						}
+					} else*/
+					if(!Input.GetKeyDown(hk)) {
+						continue;
+					}
 					ActiveTool = t;
+					activated = true;
 					break;
 				}
+				if(activated) break;
 			}
 		}
 		bool overUI = IsPointerOverUIObject();
@@ -57,11 +77,12 @@ public class ToolBar : MonoBehaviour {
 		//mouseDown = mouseDown || Input.touches.Length > 0 && Input.touches[0].phase == TouchPhase.Began;
 #endif
 		if(activeTool != null && mouseDown) {
-			if(doubleClickTime < 0.3f) {
+			if(doubleClickFrame == 1 || doubleClickTime < 0.3f) {
 				activeTool.MouseDoubleClick(Tool.MousePos, DetailEditor.instance.hovered);
 			}
 			activeTool.MouseDown(Tool.MousePos, DetailEditor.instance.hovered);
 			doubleClickTime = 0f;
+			doubleClickFrame = 0;
 		}
 
 		bool mouseUp = Input.GetKeyUp(KeyCode.Mouse0) || Input.GetMouseButtonUp(0);
@@ -89,6 +110,7 @@ public class ToolBar : MonoBehaviour {
 
 	void ActivateTool(Tool tool) {
 		if(tool == activeTool) return;
+		if(!tool.CanActivate()) return;
 		if(activeTool != null) {
 			var btn = activeTool.GetComponent<Button>();
 			var cb = btn.colors;

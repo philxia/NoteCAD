@@ -154,6 +154,9 @@ public abstract class Feature : CADObject {
 		return true;
 	}
 
+	public virtual void MarqueeSelect(Rect rect, bool wholeObject, Camera camera, UnityEngine.Matrix4x4 tf, ref List<ICADObject> result) {
+	}
+
 	public virtual ICADObject Hover(Vector3 mouse, Camera camera, UnityEngine.Matrix4x4 tf, ref double dist) {
 		return OnHover(mouse, camera, tf, ref dist);
 	}
@@ -231,7 +234,8 @@ public abstract class Feature : CADObject {
 public enum CombineOp {
 	Union,
 	Difference,
-	Intersection
+	Intersection,
+	Assembly
 }
 
 public abstract class MeshFeature : SketchFeatureBase {

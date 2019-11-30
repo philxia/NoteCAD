@@ -40,6 +40,16 @@ public struct Id {
 		if(second == 0) return value.ToString("X");
 		return value.ToString("X") + ":" + second.ToString("X");
 	}
+
+	public override int GetHashCode() {
+		return (int)value;
+	}
+
+	public override bool Equals(object obj) {
+		var o = (Id)obj;
+		if(o == this) return true;
+		return value == o.value && second == o.second;
+	}
 }
 
 public class IdGenerator {
@@ -144,10 +154,29 @@ public class IdPath {
 	}
 
 	public static bool operator==(IdPath a, IdPath b) {
-		return a.ToString() == b.ToString();
+		if(a.path.Count != b.path.Count) return false;
+		for(int i = 0; i < a.path.Count; i++) {
+			if(a.path[i] != b.path[i]) return false;
+		}
+		return true;
+		
 	}
 
 	public static bool operator!=(IdPath a, IdPath b) {
-		return a.ToString() != b.ToString();
+		return !(a == b);
+	}
+
+	public override int GetHashCode() {
+		int result = 0;
+		int shift = 0;
+		for (int i = 0; i < path.Count; i++) {
+			shift = (shift + 11) % 21;
+			result ^= ((int)path[i].value + 1024) << shift;
+		}
+		return result;
+	}
+
+	public override bool Equals(object obj) {
+		return this == obj as IdPath;
 	}
 }

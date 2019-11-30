@@ -11,24 +11,70 @@ public enum IEntityType {
 	Circle,
 	Helix,
 	Plane,
+	Function,
+	Spline,
+	Ellipse,
+	EllipticArc
 }
 
 public interface IEntity : ICADObject {
 	IEnumerable<ExpVector> points { get; }			// enough for dragging
 	IEnumerable<Vector3> segments { get; }			// enough for drawing
 	ExpVector PointOn(Exp t);						// enough for constraining
-	//ExpVector TangentAt(Exp t);
+	ExpVector TangentAt(Exp t);
+	Exp Length();
+	Exp Radius();
+	ExpVector Center();
 	IPlane plane { get; }
 	IEntityType type { get; }
 }
 
 public static class IEntityUtils {
 
+	public static ExpVector NormalAt(this IEntity self, Exp t) {
+		return self.NormalAtInPlane(t, self.plane);
+	}
+
+	public static ExpVector NormalAtInPlane(this IEntity self, Exp t, IPlane plane) {
+		if(self.plane != null) {
+			var tang = self.TangentAt(t);
+			if(tang == null) return null;
+			var n = ExpVector.Cross(tang, Vector3.forward);
+			if(plane == self.plane) return n;
+			return plane.DirToFrom(n, self.plane);
+		}
+
+		Param p = new Param("pOn");
+		var pt = self.PointOn(p);
+		var result = new ExpVector(pt.x.Deriv(p).Deriv(p), pt.y.Deriv(p).Deriv(p), pt.z.Deriv(p).Deriv(p));
+		result.x.Substitute(p, t);
+		result.y.Substitute(p, t);
+		result.z.Substitute(p, t);
+		if(plane == null) return result;
+		return plane.DirToPlane(result);
+	}
+
+	public static bool IsCircular(this IEntity e) {
+		return e.Radius() != null && e.Center() != null;
+	}
+
+	public static bool IsSameAs(this IEntity e0, IEntity e1) {
+		if(e0 == null) return e1 == null;
+		if(e1 == null) return e0 == null;
+		return e0 == e1 || e0.type == e1.type && e0.id == e1.id;
+	}
+
 	public static ExpVector PointExpInPlane(this IEntity entity, IPlane plane) {
 		var it = entity.PointsInPlane(plane).GetEnumerator();
 		it.MoveNext();
 		return it.Current;
 		//return entity.PointsInPlane(plane).Single();
+	}
+
+	public static ExpVector CenterInPlane(this IEntity entity, IPlane plane) {
+		var c = entity.Center();
+		if(c == null) return null;
+		return plane.ToFrom(c, entity.plane);
 	}
 
 	public static IEnumerable<ExpVector> PointsInPlane(this IEntity entity, IPlane plane) {
@@ -53,6 +99,20 @@ public static class IEntityUtils {
 		return plane.ToFrom(entity.PointOn(t), entity.plane);
 	}
 
+	public static ExpVector TangentAtInPlane(this IEntity entity, Exp t, IPlane plane) {
+		if(plane == entity.plane) {
+			return entity.TangentAt(t);
+		}
+		return plane.DirToFrom(entity.TangentAt(t), entity.plane);
+	}
+
+	public static ExpVector OffsetAtInPlane(this IEntity e, Exp t, Exp offset, IPlane plane) {
+		if(plane == e.plane) {
+			return e.PointOn(t) + e.NormalAt(t).Normalized() * offset;
+		}
+		return e.PointOnInPlane(t, plane) + e.NormalAtInPlane(t, plane).Normalized() * offset;
+	}
+
 	public static ExpVector GetDirectionInPlane(this IEntity entity, IPlane plane) {
 		var points = entity.points.GetEnumerator();
 		points.MoveNext();
@@ -67,6 +127,13 @@ public static class IEntityUtils {
 		int curIndex = -1;
 		while(curIndex++ < index && points.MoveNext());
 		return plane.ToFrom(points.Current, entity.plane);
+	}
+
+	public static Vector3 GetPointPosAtInPlane(this IEntity entity, int index, IPlane plane) {
+		var points = entity.points.GetEnumerator();
+		int curIndex = -1;
+		while(curIndex++ < index && points.MoveNext());
+		return plane.ToFrom(points.Current.Eval(), entity.plane);
 	}
 
 	public static ExpVector GetLineP0(this IEntity entity, IPlane plane) {
@@ -113,6 +180,46 @@ public static class IEntityUtils {
 		return minDist;
 	}
 
+	public static ExpVector OffsetAt(this IEntity e, Exp t, Exp offset) {
+		return e.PointOn(t) + e.NormalAt(t).Normalized() * offset;
+	}
+
+	public static ExpVector OffsetTangentAt(this IEntity e, Exp t, Exp offset) {
+		Param p = new Param("pOn");
+		var pt = e.OffsetAt(p, offset);
+		var result = new ExpVector(pt.x.Deriv(p), pt.y.Deriv(p), pt.z.Deriv(p));
+		result.x.Substitute(p, t);
+		result.y.Substitute(p, t);
+		result.z.Substitute(p, t);
+		return result;
+	}
+
+	public static void DrawParamRange(this IEntity e, LineCanvas canvas, double offset, double begin, double end, double step, IPlane plane) {
+		Vector3 prev = Vector3.zero;
+		bool first = true;
+		int count = (int)Math.Ceiling(Math.Abs(end - begin) / step);
+		Param t = new Param("t");
+		var PointOn = e.OffsetAtInPlane(t, offset, plane);
+		for(int i = 0; i <= count; i++) {
+			t.value = begin + (end - begin) * i / count;
+			var p = PointOn.Eval();
+			if(!first) {
+				canvas.DrawLine(prev, p);
+			}
+			first = false;
+			prev = p;
+		}
+	}
+
+	public static void DrawExtend(this IEntity e, LineCanvas canvas, double t, double step) {
+		if(t < 0.0) {
+			e.DrawParamRange(canvas, 0.0, t, 0.0, step, null);
+		} else
+		if(t > 1.0) {
+			e.DrawParamRange(canvas, 0.0, 1.0, t, step, null);
+		}
+	}
+
 }
 
 public abstract partial class Entity : SketchObject, IEntity {
@@ -132,6 +239,10 @@ public abstract partial class Entity : SketchObject, IEntity {
 		}
 	}
 
+	public int GetChildrenCount() {
+		return children.Count;
+	}
+
 	IEnumerable<ExpVector> IEntity.points {
 		get {
 			for(var it = points.GetEnumerator(); it.MoveNext(); ) {
@@ -148,9 +259,24 @@ public abstract partial class Entity : SketchObject, IEntity {
 		}
 	}
 
+	protected IEnumerable<Vector3> getSegmentsUsingPointOn(int subdiv) {
+		Param pOn = new Param("pOn");
+		var on = PointOn(pOn);
+		for(int i = 0; i <= subdiv; i++) {
+			pOn.value = (double)i / subdiv;
+			yield return on.Eval();
+		}
+	}
+
+	protected IEnumerable<Vector3> getSegments(int subdiv, Func<double, Vector3> pointOn) {
+		for (int i = 0; i <= subdiv; i++) {
+			yield return pointOn((double)i / subdiv);
+		}
+	}
+
 	public abstract ExpVector PointOn(Exp t);
 
-	protected T AddChild<T>(T e) where T : Entity {
+	public T AddChild<T>(T e) where T : Entity {
 		children.Add(e);
 		e.parent = this;
 		return e;
@@ -197,13 +323,18 @@ public abstract partial class Entity : SketchObject, IEntity {
 		base.Read(xml);
 		int i = 0;
 		foreach(XmlNode xmlChild in xml.ChildNodes) {
+			if(children.Count <= i) {
+				var type = xmlChild.Attributes["type"].Value;
+				AddChild(New(type, sketch));
+			}
 			children[i].Read(xmlChild);
 			i++;
 		}
 	}
 
 	public virtual bool IsCrossed(Entity e, ref Vector3 itr) {
-		if(!e.bbox.Overlaps(bbox)) return false;
+		var boxZero = new BBox(Vector3.zero, Vector3.zero);
+		if(!e.bbox.Overlaps(bbox) && !e.bbox.Equals(boxZero) && !bbox.Equals(boxZero)) return false;
 		if(this is ISegmentaryEntity && e is ISegmentaryEntity) {
 			var self = this as ISegmentaryEntity;
 			var entity = e as ISegmentaryEntity;
@@ -217,6 +348,7 @@ public abstract partial class Entity : SketchObject, IEntity {
 					foreach(var ep in entity.segmentPoints) {
 						if(!otherFirst) {
 							if(GeomUtils.isSegmentsCrossed(selfPrev, sp, otherPrev, ep, ref itr, 1e-6f) == GeomUtils.Cross.INTERSECTION) {
+								if(this as Entity == e && selfPrev == otherPrev && sp == ep) continue;
 								return true;
 							}
 						}
@@ -231,7 +363,7 @@ public abstract partial class Entity : SketchObject, IEntity {
 		return false;
 	}
 
-	public void ForEachSegment(Action<Vector3, Vector3> action) {
+	public void ForEachSegment(Func<Vector3, Vector3, bool> action) {
 		IEnumerable<Vector3> points = null;
 		if(this is ISegmentaryEntity) points = (this as ISegmentaryEntity).segmentPoints;
 		if(this is ILoopEntity) points = (this as ILoopEntity).loopPoints;
@@ -240,7 +372,9 @@ public abstract partial class Entity : SketchObject, IEntity {
 		bool first = true;
 		foreach(var ep in points) {
 			if(!first) {
-				action(prev, ep);
+				if(!action(prev, ep)) {
+					return;
+				}
 			}
 			first = false;
 			prev = ep;
@@ -270,15 +404,108 @@ public abstract partial class Entity : SketchObject, IEntity {
 			if(minDist < 0.0 || dist < minDist) {
 				minDist = dist;
 			}
+			return true;
 		});
 		return minDist;
 	}
 
+	protected static bool MarqueeSelectSegment(Rect rect, bool wholeObject, Vector3 ap, Vector3 bp) {
+		if(wholeObject) {
+			if(rect.Contains(ap) && rect.Contains(bp)) {
+				return true; 
+			}
+		} else {
+			if(rect.Contains(ap) || rect.Contains(bp)) {
+				return true; 
+			}
+			var line = Rect.MinMaxRect(
+				Mathf.Min(ap.x, bp.x), 
+				Mathf.Min(ap.y, bp.y),
+				Mathf.Max(ap.x, bp.x), 
+				Mathf.Max(ap.y, bp.y)
+			);
+			if(!rect.Overlaps(line)) {
+				return false;
+			}
+			Vector3 res = Vector3.zero;
+			Vector3[] points = {
+				new Vector3(rect.xMin, rect.yMin),
+				new Vector3(rect.xMax, rect.yMin),
+				new Vector3(rect.xMax, rect.yMax),
+				new Vector3(rect.xMin, rect.yMax)
+			};
+			for(int i = 0; i < points.Length; i++) {
+				if(GeomUtils.isSegmentsCrossed(ap, bp, points[i], points[(i + 1) % points.Length], ref res, 1e-6f) == GeomUtils.Cross.INTERSECTION) {
+					return true;
+				}
+			}
+			return false;
+		}
+		return false;
+	}
+
+	protected override bool OnMarqueeSelect(Rect rect, bool wholeObject, Camera camera, Matrix4x4 tf) {
+		var any = false;
+		var whole = true;
+		ForEachSegment((a, b) => {
+			Vector2 ap = camera.WorldToScreenPoint(tf.MultiplyPoint(a));
+			Vector2 bp = camera.WorldToScreenPoint(tf.MultiplyPoint(b));
+			var segSelected = MarqueeSelectSegment(rect, wholeObject, ap, bp);
+			any = any || segSelected;
+			if(!wholeObject && any) {
+				// break for each loop
+				return false; 
+			}
+			whole = whole && segSelected;
+			if(wholeObject && !whole) {
+				// break for each loop
+				return false;
+			}
+			// continue for each loop
+			return true;
+		});
+		return wholeObject && whole || !wholeObject && any;
+	}
+
+
 	protected override void OnDraw(LineCanvas canvas) {
-		canvas.SetStyle("entities");
+		if(isError) {
+			canvas.SetStyle("error");
+		} else {
+			canvas.SetStyle("entities");
+		}
 		ForEachSegment((a, b) => {
 			canvas.DrawLine(a, b);
+			return true;
 		});
+	}
+
+	public virtual ExpVector TangentAt(Exp t) {
+		Param p = new Param("pOn");
+		var pt = PointOn(p);
+		var result = new ExpVector(pt.x.Deriv(p), pt.y.Deriv(p), pt.z.Deriv(p));
+		result.x.Substitute(p, t);
+		result.y.Substitute(p, t);
+		result.z.Substitute(p, t);
+		return result;
+	}
+
+	public abstract Exp Length();
+	public abstract Exp Radius();
+
+	public virtual ExpVector Center() {
+		return null;
+	}
+
+	public static Entity New(string typeName, Sketch sk) {
+		Type[] types = { typeof(Sketch) };
+		object[] param = { sk };
+		var type = Type.GetType(typeName);
+		if(type == null) {
+			Debug.LogError("Can't create entity of type " + typeName);
+			return null;
+		}
+		return type.GetConstructor(types).Invoke(param) as Entity;
 	}
 
 }

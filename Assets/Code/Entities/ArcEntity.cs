@@ -19,7 +19,9 @@ public class ArcEntity : Entity, ISegmentaryEntity {
 
 	public override IEnumerable<Exp> equations {
 		get {
-			yield return (p0.exp - c.exp).Magnitude() - (p1.exp - c.exp).Magnitude();
+			if(!p0.IsCoincidentWith(p1)) {
+				yield return (p0.exp - c.exp).Magnitude() - (p1.exp - c.exp).Magnitude();
+			}
 		}
 	}
 
@@ -35,10 +37,18 @@ public class ArcEntity : Entity, ISegmentaryEntity {
 		return p0.IsChanged() || p1.IsChanged() || c.IsChanged();
 	}
 
-	public float GetAngle() {
+	public Exp GetAngleExp() {
+		if(!p0.IsCoincidentWith(p1)) {
+			var d0 = p0.exp - c.exp;
+			var d1 = p1.exp - c.exp;
+			return ConstraintExp.angle2d(d0, d1, angle360: true);
+		}
+		return Math.PI * 2.0;
+	}
+
+	public double GetAngle() {
 		var angle = GeomUtils.GetAngle(p0.pos - c.pos, p1.pos - c.pos);
-		if(angle == 0f) angle = 2f * Mathf.PI;
-		if(angle < 0f) angle += 2f * Mathf.PI;
+		if(angle <= 0f) angle += 2f * Mathf.PI;
 		return angle;
 	}
 
@@ -47,13 +57,14 @@ public class ArcEntity : Entity, ISegmentaryEntity {
 	public PointEntity center { get { return c; } }
 	public IEnumerable<Vector3> segmentPoints {
 		get {
-			float angle = GetAngle() * Mathf.Rad2Deg;
+			float angle = (float)GetAngle() * Mathf.Rad2Deg;
 			var cp = c.pos;
 			var rv = p0.pos - cp;
-			int subdiv = (int)Mathf.Ceil(angle / 10f);
+			int subdiv = Math.Max(Math.Abs((int)Mathf.Ceil(angle / 10f)), 1);
+			if(subdiv == 0) yield break;
 			var vz = Vector3.forward;
-			var rot = Quaternion.AngleAxis(angle / (subdiv - 1), vz);
-			for(int i = 0; i < subdiv; i++) {
+			var rot = Quaternion.AngleAxis(angle / subdiv, vz);
+			for(int i = 0; i <= subdiv; i++) {
 				yield return rv + cp;
 				rv = rot * rv;
 			}
@@ -109,8 +120,9 @@ public class ArcEntity : Entity, ISegmentaryEntity {
 	*/
 
 	public override ExpVector PointOn(Exp t) {
-		var cos = Exp.Cos(t);
-		var sin = Exp.Sin(t);
+		var angle = GetAngleExp();
+		var cos = Exp.Cos(angle * t);
+		var sin = Exp.Sin(angle * t);
 		var rv = p0.exp - c.exp;
 
 		return c.exp + new ExpVector(
@@ -119,4 +131,30 @@ public class ArcEntity : Entity, ISegmentaryEntity {
 			0.0
 		);
 	}
+
+	public override ExpVector TangentAt(Exp t) {
+		var angle = GetAngleExp();
+		var cos = Exp.Cos(angle * t + Math.PI / 2);
+		var sin = Exp.Sin(angle * t + Math.PI / 2);
+		var rv = p0.exp - c.exp;
+
+		return new ExpVector(
+			cos * rv.x - sin * rv.y, 
+			sin * rv.x + cos * rv.y, 
+			0.0
+		);
+	}
+	
+	public override Exp Length() {
+		return GetAngleExp() * Radius();
+	}
+
+	public override Exp Radius() {
+		return (p0.exp - c.exp).Magnitude();
+	}
+
+	public override ExpVector Center() {
+		return c.exp;
+	}
+
 }

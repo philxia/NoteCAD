@@ -51,12 +51,16 @@ public class PointEntity : Entity {
 		}
 	}
 
+	ExpVector exp_;
 	public ExpVector exp {
 		get {
-			if(transform != null) {
-				return transform(new ExpVector(x, y, z));
+			if(exp_ == null) {
+				exp_ = new ExpVector(x, y, z);
 			}
-			return new ExpVector(x, y, z);
+			if(transform != null) {
+				return transform(exp_);
+			}
+			return exp_;
 		}
 	}
 
@@ -83,13 +87,40 @@ public class PointEntity : Entity {
 		y.value += delta.y;
 		if(is3d) z.value += delta.z;
 	}
+
+	public bool IsCoincidentWithCurve(IEntity curve, ref PointOn pOn) {
+		return IsCoincidentWithCurve(curve, ref pOn, null);
+	}
 	
-	private bool IsCoincidentWith(PointEntity point, PointEntity exclude) {
+	private bool IsCoincidentWithCurve(IEntity curve, ref PointOn pOn, IEntity exclude) {
+		for(int i = 0; i < usedInConstraints.Count; i++) {
+			var c = usedInConstraints[i] as PointOn;
+			if(c == null) continue;
+			if(c.on.IsSameAs(curve)) {
+				pOn = c;
+				return true;
+			}
+		}
 		for(int i = 0; i < usedInConstraints.Count; i++) {
 			var c = usedInConstraints[i] as PointsCoincident;
 			if(c == null) continue;
-			var p = c.GetOtherPoint(this) as PointEntity;
-			if(p == point || p != exclude && p != null && p.IsCoincidentWith(point, this)) {
+			var p = c.GetOtherPoint(this);
+			PointOn pOn1 = null;
+			if(!p.IsSameAs(exclude) && p is PointEntity && (p as PointEntity).IsCoincidentWithCurve(curve, ref pOn1, this)) {
+				 pOn = pOn1;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private bool IsCoincidentWith(IEntity point, IEntity exclude) {
+		if(point.IsSameAs(this)) return true;
+		for(int i = 0; i < usedInConstraints.Count; i++) {
+			var c = usedInConstraints[i] as PointsCoincident;
+			if(c == null) continue;
+			var p = c.GetOtherPoint(this);
+			if(p.IsSameAs(point) || !p.IsSameAs(exclude) && p is PointEntity && (p as PointEntity).IsCoincidentWith(point, this)) {
 				return true;
 			}
 		}
@@ -102,7 +133,7 @@ public class PointEntity : Entity {
 		*/
 	}
 
-	public bool IsCoincidentWith(PointEntity point) {
+	public bool IsCoincidentWith(IEntity point) {
 		return IsCoincidentWith(point, null);
 	}
 
@@ -136,6 +167,11 @@ public class PointEntity : Entity {
 		return dist;
 	}
 
+	protected override bool OnMarqueeSelect(Rect rect, bool wholeObject, Camera camera, Matrix4x4 tf) {
+		Vector2 pp = camera.WorldToScreenPoint(tf.MultiplyPoint(pos));
+		return rect.Contains(pp);
+	}
+
 	protected override void OnDraw(LineCanvas canvas) {
 		canvas.SetStyle("points");
 		canvas.DrawPoint(pos);
@@ -143,5 +179,17 @@ public class PointEntity : Entity {
 
 	public override ExpVector PointOn(Exp t) {
 		return exp;
+	}
+
+	public override ExpVector TangentAt(Exp t) {
+		return null;
+	}
+
+	public override Exp Length() {
+		return null;
+	}
+
+	public override Exp Radius() {
+		return null;
 	}
 }

@@ -23,16 +23,6 @@ public class Perpendicular : Constraint {
 		ChooseBestOption();
 	}
 
-	Exp expressionAngle2d(ExpVector d0, ExpVector d1) {
-		Exp nu = d1.x * d0.x + d1.y * d0.y;
-		Exp nv = d0.x * d1.y - d0.y * d1.x;
-		return Exp.Atan2(nv, nu);
-	}
-	
-	Exp expressionAngle3d(ExpVector d0, ExpVector d1) {
-		return Exp.Atan2(ExpVector.Cross(d0, d1).Magnitude(), ExpVector.Dot(d0, d1));
-	}
-
 	public override IEnumerable<Exp> equations {
 		get {
 			var l0 = GetEntityOfType(IEntityType.Line, 0);
@@ -41,7 +31,7 @@ public class Perpendicular : Constraint {
 			ExpVector d0 = l0.GetPointAtInPlane(0, sketch.plane) - l0.GetPointAtInPlane(1, sketch.plane);
 			ExpVector d1 = l1.GetPointAtInPlane(0, sketch.plane) - l1.GetPointAtInPlane(1, sketch.plane);
 
-			Exp angle = sketch.is3d ? expressionAngle3d(d0, d1) : expressionAngle2d(d0, d1);
+			Exp angle = sketch.is3d ? ConstraintExp.angle3d(d0, d1) : ConstraintExp.angle2d(d0, d1);
 			switch(option) {
 				case Option.LeftHand: yield return angle - Math.PI / 2.0; break;
 				case Option.RightHand: yield return angle + Math.PI / 2.0; break;
@@ -57,7 +47,7 @@ public class Perpendicular : Constraint {
 		Vector3 dir = (p1 - p0).normalized * size / 2f;
 		Vector3 perp = Vector3.Cross(p1 - p0, Vector3.forward).normalized * 3f * getPixelSize();
 		Vector3 pos = (p1 + p0) / 2f;
-		ref_points[rpt] = pos;
+		ref_points[rpt] = sketch.plane.ToPlane(pos);
 		canvas.DrawLine(pos + dir + perp, pos - dir + perp);
 		canvas.DrawLine(pos + dir - perp, pos - dir - perp);
 	}
@@ -102,8 +92,7 @@ public class Perpendicular : Constraint {
 			Vector3 corner = p + dir1 + dir2;
 			canvas.DrawLine(p + dir1, corner);
 			canvas.DrawLine(p + dir2, corner);
-			ref_points[0] = corner;
-			ref_points[1] = corner;
+			ref_points[0] = ref_points[1] = sketch.plane.ToPlane(corner);
 		} else {
 			for(int i=0; i<2; i++) {
 				var line = GetEntityOfType(IEntityType.Line, i);
@@ -118,8 +107,9 @@ public class Perpendicular : Constraint {
 				Vector3 p = center - perp * pix * 8.0f;
 				canvas.DrawLine(p - dir * pix * 8.0f, p + dir * pix * 8.0f);
 				canvas.DrawLine(p, p - perp * pix * 13.0f);
-				ref_points[i] = p - perp * pix * 6.0f;
+				ref_points[i] = sketch.plane.ToPlane(p - perp * pix * 6.0f);
 			}
+
 			if(DetailEditor.instance.hovered == this) {
 				DrawReferenceLink(canvas, Camera.main);
 			}

@@ -14,7 +14,15 @@ public class ImportDXFTool : Tool, IPointerDownHandler {
 	}
 
 	public void OnPointerDown(PointerEventData eventData) {
-		NoteCADJS.LoadBinaryData(DataLoaded);
+		NoteCADJS.LoadBinaryData(DataLoaded, "dxf");
+	}
+
+	void AutoConstrain(Entity e) {
+		foreach(var p in e.points) {
+			var other = p.sketch.GetOtherPointByPoint(p, 1e-4f);
+			if(other == null) continue;
+			new PointsCoincident(p.sketch, p, other);
+		}
 	}
 
 	void AddLine(netDxf.Entities.Line l) {
@@ -23,6 +31,7 @@ public class ImportDXFTool : Tool, IPointerDownHandler {
 		LineEntity line = new LineEntity(DetailEditor.instance.currentSketch.GetSketch());
 		line.p0.SetPosition(new UnityEngine.Vector3((float)s.X, (float)s.Y, (float)s.Z));
 		line.p1.SetPosition(new UnityEngine.Vector3((float)e.X, (float)e.Y, (float)e.Z));
+		AutoConstrain(line);
 	}
 
 	void AddArc(netDxf.Entities.Arc a) {
@@ -38,6 +47,7 @@ public class ImportDXFTool : Tool, IPointerDownHandler {
 		arc.c.SetPosition(c);
 		arc.p0.SetPosition(rvs);
 		arc.p1.SetPosition(rve);
+		AutoConstrain(arc);
 	}
 
 	void AddCircle(netDxf.Entities.Circle c) {
@@ -45,11 +55,13 @@ public class ImportDXFTool : Tool, IPointerDownHandler {
 		CircleEntity circle = new CircleEntity(DetailEditor.instance.currentSketch.GetSketch());
 		circle.c.SetPosition(new UnityEngine.Vector3((float)ce.X, (float)ce.Y, (float)ce.Z));
 		circle.radius.value = c.Radius;
+		AutoConstrain(circle);
 	}
 
 	void DataLoaded(byte[] data) {
 		MemoryStream stream = new MemoryStream(data);
 		DxfDocument doc = DxfDocument.Load(stream);
+		editor.PushUndo();
 		foreach(var l in doc.Lines) {
 			AddLine(l);
 		}
@@ -75,6 +87,7 @@ public class ImportDXFTool : Tool, IPointerDownHandler {
 				LineEntity line = new LineEntity(DetailEditor.instance.currentSketch.GetSketch());
 				line.p0.SetPosition(new UnityEngine.Vector3((float)s.X, (float)s.Y, (float)s.Z));
 				line.p1.SetPosition(new UnityEngine.Vector3((float)e.X, (float)e.Y, (float)e.Z));
+				AutoConstrain(line);
 			}
 		}
 

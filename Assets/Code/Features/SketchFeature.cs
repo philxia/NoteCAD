@@ -125,7 +125,6 @@ public class SketchFeature : SketchFeatureBase, IPlane {
 			loop.ForEach(e => e.isError = false);
 			foreach(var e0 in loop) {
 				foreach(var e1 in loop) {
-					if(e0 == e1) continue;
 					var cross = e0.IsCrossed(e1, ref itr);
 					e0.isError = e0.isError || cross;
 					e1.isError = e1.isError || cross;
@@ -172,4 +171,11 @@ public class SketchFeature : SketchFeatureBase, IPlane {
 	protected override void OnShow(bool state) {
 		loopObj.SetActive(state && active);
 	}
+
+	public void DrawTriangulation(LineCanvas canvas) {
+		var ids = new List<List<Id>>();
+		var polygons = Sketch.GetPolygons(loops.Where(l => l.All(e => !e.isError)).ToList(), ref ids);
+		MeshUtils.DrawTriangulation(polygons, canvas);
+	}
+
 }

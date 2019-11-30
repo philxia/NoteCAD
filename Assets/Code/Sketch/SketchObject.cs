@@ -44,6 +44,7 @@ public abstract class SketchObject : CADObject, ICADObject {
 	Sketch sk;
 	public Sketch sketch { get { return sk; } }
 	public bool isDestroyed { get; private set; }
+	public bool isVisible = true;
 
 	Id guid_;
 	public override Id guid { get { return guid_; } }
@@ -72,43 +73,14 @@ public abstract class SketchObject : CADObject, ICADObject {
 		OnDrag(delta);
 	}
 
-	Color oldColor;
-
 	bool hovered;
-	public bool isHovered {
-		get {
-			return hovered;
-		}
-		set {
-			if(value == hovered) return;
-			hovered = value;
-		}
-	}
+	public bool isHovered {	get { return hovered; }	set { hovered = value; } }
 
 	bool error;
-	public bool isError {
-		get {
-			return error;
-		}
-		set {
-			if(value == error) return;
-			if(value) {
-				isHovered = false;
-			}
-			error = value;
-		}
-	}
+	public bool isError { get { return error; } set { error = value; } }
 
 	bool selectable = true;
-	public bool isSelectable {
-		get {
-			return selectable;
-		}
-		set {
-			if(value == selectable) return;
-			selectable = value;
-		}
-	}
+	public bool isSelectable { get { return selectable; } set { selectable = value; } }
 
 	public virtual void Destroy() {
 		if(isDestroyed) return;
@@ -123,6 +95,7 @@ public abstract class SketchObject : CADObject, ICADObject {
 
 	public virtual void Write(XmlTextWriter xml) {
 		xml.WriteAttributeString("id", guid.ToString());
+		if(isVisible == false) xml.WriteAttributeString("visible", isVisible.ToString());
 		OnWrite(xml);
 	}
 
@@ -131,8 +104,13 @@ public abstract class SketchObject : CADObject, ICADObject {
 	}
 
 	public virtual void Read(XmlNode xml) {
-
-		guid_ = sketch.idGenerator.Create(xml.Attributes["id"].Value);
+		var newGuid = sketch.idGenerator.Create(xml.Attributes["id"].Value);
+		if(xml.Attributes["visible"] != null) isVisible = Convert.ToBoolean(xml.Attributes["visible"].Value);
+		if(sketch.idMapping != null) {
+			sketch.idMapping[newGuid] = guid_;
+		} else {
+			guid_ = newGuid;
+		}
 		OnRead(xml);
 	}
 
@@ -140,7 +118,7 @@ public abstract class SketchObject : CADObject, ICADObject {
 	
 	}
 
-	public void Draw(LineCanvas canvas) {
+	public virtual void Draw(LineCanvas canvas) {
 		OnDraw(canvas);
 	}
 
@@ -164,4 +142,11 @@ public abstract class SketchObject : CADObject, ICADObject {
 		return -1.0;
 	}
 
+	public virtual bool MarqueeSelect(Rect rect, bool wholeObject, Camera camera, Matrix4x4 tf) {
+		return OnMarqueeSelect(rect, wholeObject, camera, tf);
+	}
+
+	protected virtual bool OnMarqueeSelect(Rect rect, bool wholeObject, Camera camera, Matrix4x4 tf) {
+		return false;
+	}
 }

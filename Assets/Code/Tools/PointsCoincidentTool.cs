@@ -11,8 +11,15 @@ public class PointsCoincidentTool : Tool {
 		if(entity == null) return;
 		if(p0 != null) {
 			if(entity.type == IEntityType.Point) {
-				new PointsCoincident(DetailEditor.instance.currentSketch.GetSketch(), p0, entity);
+				PointEntity pt0 = p0 as PointEntity;
+				PointEntity pt1 = entity as PointEntity;
+
+				if(!p0.IsSameAs(entity) && (pt0 == null || pt1 == null || !pt0.IsCoincidentWith(pt1))) {
+					editor.PushUndo();
+					new PointsCoincident(DetailEditor.instance.currentSketch.GetSketch(), p0, entity);
+				}
 			} else {
+				editor.PushUndo();
 				new PointOn(DetailEditor.instance.currentSketch.GetSketch(), p0, entity);
 			}
 			p0 = null;
@@ -26,7 +33,7 @@ public class PointsCoincidentTool : Tool {
 	}
 
 	protected override string OnGetDescription() {
-		return "hover and click two different points to constrain them to be coincident.";
+		return "hover and click point and arbitrary entity for constraining them to be coincident.";
 	}
 
 }

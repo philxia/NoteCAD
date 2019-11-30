@@ -109,6 +109,7 @@ public class SketchFeatureBase : Feature {
 		canvas.ClearStyle("constraints");
 		canvas.SetStyle("constraints");
 		foreach(var c in sketch.constraintList) {
+			if(!c.isVisible) continue;
 			c.Draw(canvas);
 		}
 	}
@@ -125,22 +126,20 @@ public class SketchFeatureBase : Feature {
 		base.UpdateDirty();
 		go.transform.SetMatrix(transform);
 	
-		//if(sketch.IsEntitiesChanged()) {
-			canvas.SetStyle("entities");
-			foreach(var e in sketch.entityList) {
-				e.Draw(canvas);
-			}
-
-			canvas.ClearStyle("error");
-			canvas.SetStyle("error");
-			foreach(var e in sketch.entityList) {
-				if(!e.isError) continue;
-				e.Draw(canvas);
-			}
-		//}
+		canvas.SetStyle("entities");
+		foreach(var e in sketch.entityList) {
+			if(!e.isVisible) continue;
+			e.Draw(canvas);
+		}
 
 		sketch.MarkUnchanged();
 		canvas.UpdateDirty();
+	}
+
+
+	public override void MarqueeSelect(Rect rect, bool wholeObject, Camera camera, Matrix4x4 tf, ref List<ICADObject> result) {
+		var resTf = GetTransform() * tf;
+		sketch.MarqueeSelect(rect, wholeObject, camera, resTf, ref result);
 	}
 
 	public override ICADObject Hover(Vector3 mouse, Camera camera, Matrix4x4 tf, ref double objDist) {
@@ -183,6 +182,10 @@ public class SketchFeatureBase : Feature {
 
 
 	protected sealed override void OnWrite(XmlTextWriter xml) {
+		xml.WriteAttributeString("solveParent", solveParent.ToString());
+		if(shouldHoverWhenInactive) {
+			xml.WriteAttributeString("alwaysHover", shouldHoverWhenInactive.ToString());
+		}
 		OnWriteSketchFeatureBase(xml);
 		sketch.Write(xml);
 	}
@@ -192,6 +195,12 @@ public class SketchFeatureBase : Feature {
 	}
 
 	protected sealed override void OnRead(XmlNode xml) {
+		if(xml.Attributes["solveParent"] != null) {
+			solveParent = Convert.ToBoolean(xml.Attributes["solveParent"].Value);
+		}
+		if(xml.Attributes["alwaysHover"] != null) {
+			shouldHoverWhenInactive = Convert.ToBoolean(xml.Attributes["alwaysHover"].Value);
+		}
 		OnReadSketchFeatureBase(xml);
 		sketch.Read(xml);
 	}
